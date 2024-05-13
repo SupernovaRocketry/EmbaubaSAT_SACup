@@ -17,6 +17,11 @@
 
 
 #define SAMPLE_TIME 1500
+#define GPS_BAUDRATE 9600
+
+// ------------------ Activate SD and Tellemetry --------------------------
+#define SD_init 0 // 0 is OFF, 1 is ON
+#define Tellemetry_send 0 // 0 is OFF, 1 is ON
 
 Adafruit_INA219 ina219_0 (0x68);
 TinyGPSPlus gps;
@@ -42,6 +47,7 @@ float gyroX = 0, gyroY = 0, gyroZ = 0;
 String jsonStr;
 sensors_event_t humidity;
 sensors_event_t temp;
+
 
 //Definição dos parâmetros do sensor de O3
 #define RL_o3 10     // Resistência ao lado do DOUT_LED
@@ -101,16 +107,35 @@ void readINA(){
 
 void readGPS()
 {
+
   Serial.print(F("Location: "));
   if (gps.location.isValid()){
     Serial.print(gps.location.lat(), 6);
     Serial.print(F(","));
     Serial.print(gps.location.lng(), 6);
+    lat = gps.location.lat();
+    lon = gps.location.lng();
   }
   else
   {
     Serial.print(F("INVALID"));
   }
+  Serial.print(F("DATE: "));
+  if (gps.date.isValid() && gps.time.isValid()) {
+        Serial.print(gps.date.year());
+        Serial.print(F("-"));
+        Serial.print(gps.date.month());
+        Serial.print(F("-"));
+        Serial.print(gps.date.day());
+        Serial.print(F(" "));
+        Serial.print(gps.time.hour());
+        Serial.print(F(":"));
+        Serial.print(gps.time.minute());
+        Serial.print(F(":"));
+        Serial.println(gps.time.second());
+      } else {
+        Serial.println(F("INVALID date-time"));
+      }
 }
 
 // -------------- BMP ----------------
@@ -265,8 +290,10 @@ String Json(){
   DynamicJsonDocument sensores(256);
   //Adicionando os valores dos sensores ao JsonObject
   sensores["sat"] = "Embauba";
-  sensores["cur"] = current_mA;
-  sensores["pot"] = power_mW;
+  // sensores["cur"] = current_mA;
+  // sensores["pot"] = power_mW;
+  sensores["lat"] = lat;
+  sensores["long"] = lon;
   sensores["temp"] = temperatura_bmp;
   sensores["press"] = pressao_bmp;
   sensores["alt"] = altitude_bmp;
@@ -321,8 +348,9 @@ void writeFile(fs ::FS &fs, const char *path, const char *message)
   file.close();
 }
 
-
+//  ---------------------------------------------- void setup -----------------------------------------------------------------
 void setup (){
+
     Serial.begin(115200);
     Serial.println("Hello, SACup!");
     Serial.println();
@@ -365,7 +393,7 @@ void setup (){
     Serial.println("INA initialized...");
 
     // Initialize GPS
-    Serial2.begin(115200);
+    Serial2.begin(GPS_BAUDRATE);
     Serial.println("GPS initialized..."); 
 
     // Initialize BMP
@@ -378,27 +406,27 @@ void setup (){
     Serial.println("BMP initialized...");
 
     // Initialize SD
-    
-    Serial.println("SD initializing...");
-    spi.begin(SCK, MISO, MOSI, CS);
-    if (!SD.begin(CS, spi, 80000000))
-    {
-      Serial.println(" Card Mount Failed ");
-      return;
-    }
-    uint8_t cardType = SD.cardType();
-    if (cardType == CARD_NONE)
-    {
-      Serial.println("No SD card attached ");
-      return;
-    }
-    writeFile(SD, "/ hello . txt ", " teste ");
-    
-  
+    #ifdef SD_init
+      Serial.println("SD initializing...");
+      spi.begin(SCK, MISO, MOSI, CS);
+      if (!SD.begin(CS, spi, 80000000))
+      {
+        Serial.println(" Card Mount Failed ");
+        return;
+      }
+      uint8_t cardType = SD.cardType();
+      if (cardType == CARD_NONE)
+      {
+        Serial.println("No SD card attached ");
+        return;
+      }
+      writeFile(SD, "/ hello . txt ", " teste ");
+    #endif
 
   Serial.println("All programming codes initialize. Default code running!");   
 }
 
+//  ---------------------------------------------- void loop -----------------------------------------------------------------
 void loop() {
 
     readINA();
@@ -410,9 +438,18 @@ void loop() {
     readAHT();
     jsonStr = Json(); //jsonStr = ManualJson();
     Serial.println(jsonStr);
-    //saveSD(SD, "/ hello . txt ", timeString.c_str());
-    //saveSD(SD, "/ hello . txt ", jsonStr.c_str());
-    String timeString = getCurrentTime();
-    espToRasp(jsonStr); //HTTPsend(jsonStr);
+    
+    if(SD_init)
+    {
+      String timeString = getCurrentTime();
+      saveSD(SD, "/ hello . txt ", timeString.c_str());
+      saveSD(SD, "/ hello . txt ", jsonStr.c_str());
+    }    
+
+    if(Tellemetry_send)
+    {
+      espToRasp(jsonStr);
+    }
+    
     delay(SAMPLE_TIME);
 }
