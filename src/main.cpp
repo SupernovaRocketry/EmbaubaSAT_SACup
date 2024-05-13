@@ -20,8 +20,8 @@
 #define GPS_BAUDRATE 9600
 
 // ------------------ Activate SD and Tellemetry --------------------------
-#define SD_init 0 // 0 is OFF, 1 is ON
-#define Tellemetry_send 0 // 0 is OFF, 1 is ON
+// #define SD_init 0 // 0 is OFF, 1 is ON
+// #define Tellemetry_send 0 // 0 is OFF, 1 is ON
 
 Adafruit_INA219 ina219_0 (0x68);
 TinyGPSPlus gps;
@@ -72,15 +72,12 @@ IPAddress raspberryPiIP(255, 255, 255, 255);  // Replace with the Raspberry Pi's
 const int udpPort = 1234;
 
 // -------------- Configuracoes SD -----------------------
-#define SCK 14
-#define MISO 12
-#define MOSI 13
-#define CS 15
+// #define SCK 14
+// #define MISO 12
+// #define MOSI 13
+// #define CS 15
 
-// File dataFile;
-// const int CS = 15;
-
-// ----------------------------------------------------------
+// ---------------------------------------------------------- // File dataFile;
 
 // ------------------------ Leituras ------------------------
 
@@ -255,26 +252,25 @@ void readAHT(){
 
 // -------------- SAVE SD CARD ----------------
 
-void saveSD(fs ::FS &fs, const char *path, const char *message){
-  Serial.println("Salvando no SD...");
-  Serial.printf(" Appending to file : %s\n", path);
-  File file = fs.open(path, FILE_APPEND);
-  if (!file)
-  {
-    Serial.println(" Failed to open file for appending ");
-    return;
-  }
-  if (file.print(message))
-  {
-    Serial.println(" Message appended ");
-  }
-  else
-  {
-    Serial.println(" Append failed ");
-  }
-  file.print("\n");
-  file.close();
-}// saveSD(SD, "/ hello . txt ", "teste");
+// void saveSD(fs ::FS &fs, const char *path, const char *message){
+//   Serial.printf("SD saving: Appending to file : %s\n", path);
+//   File file = fs.open(path, FILE_APPEND);
+//   if (!file)
+//   {
+//     Serial.println(" Failed to open file for appending ");
+//     return;
+//   }
+//   if (file.print(message))
+//   {
+//     Serial.println(" Message appended ");
+//   }
+//   else
+//   {
+//     Serial.println(" Append failed ");
+//   }
+//   file.print("\n");
+//   file.close();
+// }// saveSD(SD, "/ hello . txt ", "teste");
 
 // -------------- Current time ----------------
 String getCurrentTime() {
@@ -328,25 +324,25 @@ void espToRasp(String jsonStr){
 
 // -------------- writeFile on SD ----------------
 
-void writeFile(fs ::FS &fs, const char *path, const char *message)
-{
-  Serial.printf(" Writing file : %s\n", path);
-  File file = fs.open(path, FILE_WRITE);
-  if (!file)
-  {
-    Serial.println(" Failed to open file for writing ");
-    return;
-  }
-  if (file.print(message))
-  {
-    Serial.println(" File written ");
-  }
-  else
-  {
-    Serial.println(" Write failed ");
-  }
-  file.close();
-}
+// void writeFile(fs ::FS &fs, const char *path, const char *message)
+// {
+//   Serial.printf(" Writing file : %s\n", path);
+//   File file = fs.open(path, FILE_WRITE);
+//   if (!file)
+//   {
+//     Serial.println(" Failed to open file for writing ");
+//     return;
+//   }
+//   if (file.print(message))
+//   {
+//     Serial.println(" File written ");
+//   }
+//   else
+//   {
+//     Serial.println(" Write failed ");
+//   }
+//   file.close();
+// }
 
 //  ---------------------------------------------- void setup -----------------------------------------------------------------
 void setup (){
@@ -406,22 +402,22 @@ void setup (){
     Serial.println("BMP initialized...");
 
     // Initialize SD
-    #ifdef SD_init
-      Serial.println("SD initializing...");
-      spi.begin(SCK, MISO, MOSI, CS);
-      if (!SD.begin(CS, spi, 80000000))
-      {
-        Serial.println(" Card Mount Failed ");
-        return;
-      }
-      uint8_t cardType = SD.cardType();
-      if (cardType == CARD_NONE)
-      {
-        Serial.println("No SD card attached ");
-        return;
-      }
-      writeFile(SD, "/ hello . txt ", " teste ");
-    #endif
+    // #ifdef SD_init
+    //   Serial.println("SD initializing...");
+    //   spi.begin(SCK, MISO, MOSI, CS);
+    //   if (!SD.begin(CS, spi, 80000000))
+    //   {
+    //     Serial.println(" Card Mount Failed ");
+    //     return;
+    //   }
+    //   uint8_t cardType = SD.cardType();
+    //   if (cardType == CARD_NONE)
+    //   {
+    //     Serial.println("No SD card attached ");
+    //     return;
+    //   }
+    //   writeFile(SD, "/ hello . txt ", " teste ");
+    // #endif
 
   Serial.println("All programming codes initialize. Default code running!");   
 }
@@ -439,17 +435,15 @@ void loop() {
     jsonStr = Json(); //jsonStr = ManualJson();
     Serial.println(jsonStr);
     
-    if(SD_init)
-    {
+    #ifdef SD_init
       String timeString = getCurrentTime();
       saveSD(SD, "/ hello . txt ", timeString.c_str());
       saveSD(SD, "/ hello . txt ", jsonStr.c_str());
-    }    
+    #endif   
 
-    if(Tellemetry_send)
-    {
+    #ifdef Tellemetry_send
       espToRasp(jsonStr);
-    }
-    
+    #endif
+
     delay(SAMPLE_TIME);
 }
