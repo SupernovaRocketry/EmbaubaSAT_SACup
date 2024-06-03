@@ -4,6 +4,10 @@
 #include <Adafruit_INA219.h> 
 #include <Adafruit_BMP280.h>
 #include <Adafruit_MPU6050.h>
+#include "MPU.hpp"
+#include "mpu/math.hpp"
+#include "mpu/types.hpp"
+#include "I2Cbus.hpp"
 #include <Adafruit_Sensor.h>
 #include <Adafruit_AHTX0.h>
 #include <TinyGPSPlus.h>
@@ -13,14 +17,14 @@
 #include <HTTPClient.h>
 #include <SPI.h>
 #include <SD.h>
+#include <FS.h>
 // --------------------------------------
-
 
 #define SAMPLE_TIME 1500
 #define GPS_BAUDRATE 9600
 
 // ------------------ Activate SD and Tellemetry --------------------------
-// #define SD_init 0 // 0 is OFF, 1 is ON
+#define SD_init 1 // 0 is OFF, 1 is ON
 // #define Tellemetry_send 0 // 0 is OFF, 1 is ON
 
 Adafruit_INA219 ina219_0 (0x68);
@@ -30,6 +34,9 @@ Adafruit_MPU6050 mpu;
 Adafruit_AHTX0 aht;
 Adafruit_Sensor *aht_humidity, *aht_temp;
 SPIClass spi = SPIClass(HSPI);
+
+MPU_t MPU; // create an object
+I2Cbus i2c0; // initialize the I2C bus
 
 float current_mA = 0;
 float power_mW = 0;
@@ -42,8 +49,8 @@ float pressao_bmp = 0;
 float altitude_bmp = 0;
 double ozonio = 0;
 double carbono = 0;
-float accX = 0, accY = 0, accZ = 0;
-float gyroX = 0, gyroY = 0, gyroZ = 0;
+int16_t ax = 0, ay = 0, az = 0;
+int16_t gx = 0, gy = 0, gz = 0;
 String jsonStr;
 sensors_event_t humidity;
 sensors_event_t temp;
@@ -72,11 +79,14 @@ IPAddress raspberryPiIP(255, 255, 255, 255);  // Replace with the Raspberry Pi's
 const int udpPort = 1234;
 
 // -------------- Configuracoes SD -----------------------
-// #define SCK 14
-// #define MISO 12
-// #define MOSI 13
-// #define CS 15
-
+#define SCK 14
+#define MISO 12
+#define MOSI 13
+#define CS 15
+// -------------- Configuracoes I2C -----------------------
+#define SDA = 21;
+#define SCL = 22;
+#define CLOCK_SPEED = 400000;  // range from 100 KHz ~ 400Hz
 // ---------------------------------------------------------- // File dataFile;
 
 // ------------------------ Leituras ------------------------
@@ -205,36 +215,59 @@ void readMQ135(){
     Serial.println(carbono);
 }
 
-// -------------- MPU6050 ----------------
+// -------------- MPU----------------
 
-void readMPU(){
+void readMPU6050(){
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
-  accX = a.acceleration.x;
-  accY = a.acceleration.y;
-  accZ = a.acceleration.z;
-  gyroX = g.gyro.x;
-  gyroY = g.gyro.y;
-  gyroZ = g.gyro.z;
-  /* Print out the values */
-  Serial.print("AccelX:");
-  Serial.print(accX);
-  Serial.print(",");
-  Serial.print("AccelY:");
-  Serial.print(accY);
-  Serial.print(",");
-  Serial.print("AccelZ:");
-  Serial.println(accZ);
-  Serial.print("GyroX:");
-  Serial.print(gyroX);
-  Serial.print(",");
-  Serial.print("GyroY:");
-  Serial.print(gyroY);
-  Serial.print(",");
-  Serial.print("GyroZ:");
-  Serial.println(gyroZ);
+  ax = a.acceleration.x;
+  ay = a.acceleration.y;
+  ay = a.acceleration.z;
+  gx = g.gyro.x;
+  gy = g.gyro.y;
+  gz = g.gyro.z;
 }
 
+
+void readMPU6500(){
+// Read accelerometer data
+  int16_t ax = MPU.readAccelX_mss();
+  int16_t ay = MPU.readAccelY_mss();
+  int16_t az = MPU.readAccelZ_mss();
+
+  // Read gyroscope data
+  int16_t gx = MPU.readGyroX_rads();
+  int16_t gy = MPU.readGyroY_rads();
+  int16_t gz = MPU.readGyroZ_rads();
+
+  // Read temperature data
+  int16_t temp = MPU.readTempDegC();
+
+  // Print the data
+  Serial.print("Accel X: ");
+  Serial.print(ax);
+  Serial.print("\t");
+  Serial.print("Accel Y: ");
+  Serial.print(ay);
+  Serial.print("\t");
+  Serial.print("Accel Z: ");
+  Serial.print(az);
+  Serial.print("\t");
+  Serial.print("Gyro X: ");
+  Serial.print(gx);
+  Serial.print("\t");
+  Serial.print("Gyro Y: ");
+  Serial.print(gy);
+  Serial.print("\t");
+  Serial.print("Gyro Z: ");
+  Serial.print(gz);
+  Serial.print("\t");
+  Serial.print("Temperature: ");
+  Serial.println(temp);
+
+  delay(1000); // wait for 1 second
+
+}
 // -------------- AHT ----------------
 
 void readAHT(){
@@ -252,25 +285,25 @@ void readAHT(){
 
 // -------------- SAVE SD CARD ----------------
 
-// void saveSD(fs ::FS &fs, const char *path, const char *message){
-//   Serial.printf("SD saving: Appending to file : %s\n", path);
-//   File file = fs.open(path, FILE_APPEND);
-//   if (!file)
-//   {
-//     Serial.println(" Failed to open file for appending ");
-//     return;
-//   }
-//   if (file.print(message))
-//   {
-//     Serial.println(" Message appended ");
-//   }
-//   else
-//   {
-//     Serial.println(" Append failed ");
-//   }
-//   file.print("\n");
-//   file.close();
-// }// saveSD(SD, "/ hello . txt ", "teste");
+void saveSD(fs ::FS &fs, const char *path, const char *message){
+  Serial.printf("SD saving: Appending to file : %s\n", path);
+  File file = fs.open(path, FILE_APPEND);
+  if (!file)
+  {
+    Serial.println(" Failed to open file for appending ");
+    return;
+  }
+  if (file.print(message))
+  {
+    Serial.println(" Message appended ");
+  }
+  else
+  {
+    Serial.println(" Append failed ");
+  }
+  file.print("\n");
+  file.close();
+}// saveSD(SD, "/ hello . txt ", "teste");
 
 // -------------- Current time ----------------
 String getCurrentTime() {
@@ -293,12 +326,12 @@ String Json(){
   sensores["temp"] = temperatura_bmp;
   sensores["press"] = pressao_bmp;
   sensores["alt"] = altitude_bmp;
-  sensores["gX"] = gyroX;
-  sensores["gY"] = gyroY;
-  sensores["gZ"] = gyroZ;
-  sensores["aX"] = accX;
-  sensores["aY"] = accY;
-  sensores["aZ"] = accZ;
+  sensores["gX"] = gx;
+  sensores["gY"] = gy;
+  sensores["gZ"] = gz;
+  sensores["aX"] = ax;
+  sensores["aY"] = ay;
+  sensores["aZ"] = az;
   sensores["o3"] = ozonio;
   sensores["co2"] = carbono;
   //Convertendo o JsonDocument em uma string JSON
@@ -322,36 +355,36 @@ void espToRasp(String jsonStr){
   Serial.println(jsonStr);
 }
 
-// -------------- writeFile on SD ----------------
+//-------------- writeFile on SD ----------------
 
-// void writeFile(fs ::FS &fs, const char *path, const char *message)
-// {
-//   Serial.printf(" Writing file : %s\n", path);
-//   File file = fs.open(path, FILE_WRITE);
-//   if (!file)
-//   {
-//     Serial.println(" Failed to open file for writing ");
-//     return;
-//   }
-//   if (file.print(message))
-//   {
-//     Serial.println(" File written ");
-//   }
-//   else
-//   {
-//     Serial.println(" Write failed ");
-//   }
-//   file.close();
-// }
+void writeFile(fs ::FS &fs, const char *path, const char *message)
+{
+  Serial.printf(" Writing file : %s\n", path);
+  File file = fs.open(path, FILE_WRITE);
+  if (!file)
+  {
+    Serial.println(" Failed to open file for writing ");
+    return;
+  }
+  if (file.print(message))
+  {
+    Serial.println(" File written ");
+  }
+  else
+  {
+    Serial.println(" Write failed ");
+  }
+  file.close();
+}
 
 //  ---------------------------------------------- void setup -----------------------------------------------------------------
 void setup (){
 
-    Serial.begin(115200);
-    Serial.println("Hello, SACup!");
-    Serial.println();
+  Serial.begin(115200);
+  Serial.println("Hello, SACup!");
+  Serial.println();
   //  ----------------------- Initializing satellite ------------------------------------------
-    Serial.println("Initializing EmbaubaSAT...");
+  Serial.println("Initializing EmbaubaSAT...");
 
   // Initialize the WiFi SOFT AP
   WiFi.softAP(ssid, password); //Inicia o ponto de acesso
@@ -362,13 +395,15 @@ void setup (){
   udp.begin(udpPort); // Choose a port number
 
   // Initialize MPU
-  if (!mpu.begin(0x68)) {
-  Serial.println("Failed to find MPU6050 chip");
-  while (1) {
-    delay(10);
-    }
-  }
-  Serial.println("MPU initialized...");
+  i2c0.begin(SDA, SCL, CLOCK); // initialize the I2C bus
+  MPU.setBus(i2c0); // set the communication bus
+  // if (!mpu.begin(0x68)) {
+  // Serial.println("Failed to find MPU6050 chip");
+  // while (1) {
+  //   delay(10);
+  //   }
+  // }
+  // Serial.println("MPU initialized...");
 
   //setupt motion detection
   mpu.setHighPassFilter(MPU6050_HIGHPASS_0_63_HZ);
@@ -401,23 +436,23 @@ void setup (){
     }
     Serial.println("BMP initialized...");
 
-    // Initialize SD
-    // #ifdef SD_init
-    //   Serial.println("SD initializing...");
-    //   spi.begin(SCK, MISO, MOSI, CS);
-    //   if (!SD.begin(CS, spi, 80000000))
-    //   {
-    //     Serial.println(" Card Mount Failed ");
-    //     return;
-    //   }
-    //   uint8_t cardType = SD.cardType();
-    //   if (cardType == CARD_NONE)
-    //   {
-    //     Serial.println("No SD card attached ");
-    //     return;
-    //   }
-    //   writeFile(SD, "/ hello . txt ", " teste ");
-    // #endif
+    //Initialize SD
+    #ifdef SD_init
+      Serial.println("SD initializing...");
+      spi.begin(SCK, MISO, MOSI, CS);
+      if (!SD.begin(CS, spi, 80000000))
+      {
+        Serial.println(" Card Mount Failed ");
+        return;
+      }
+      uint8_t cardType = SD.cardType();
+      if (cardType == CARD_NONE)
+      {
+        Serial.println("No SD card attached ");
+        return;
+      }
+      writeFile(SD, "/ EmbaubaDATA.txt ", "");
+    #endif
 
   Serial.println("All programming codes initialize. Default code running!");   
 }
@@ -425,13 +460,13 @@ void setup (){
 //  ---------------------------------------------- void loop -----------------------------------------------------------------
 void loop() {
 
-    readINA();
+    //readINA();
     readGPS();
     readBMP();
-    readMQ131();
+    //readMQ131();
     readMQ135();
-    readMPU();
-    readAHT();
+    //readMPU();
+    //readAHT();
     jsonStr = Json(); //jsonStr = ManualJson();
     Serial.println(jsonStr);
     
