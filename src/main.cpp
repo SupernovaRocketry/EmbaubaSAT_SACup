@@ -1,42 +1,56 @@
 #include <Arduino.h>
-#include <Wire.h>
 #include <ArduinoJson.h>
+#include <Wire.h>
 #include <Adafruit_INA219.h> 
 #include <Adafruit_BMP280.h>
-#include <Adafruit_MPU6050.h>
-#include "MPU.hpp"
-#include "mpu/math.hpp"
-#include "mpu/types.hpp"
-#include "I2Cbus.hpp"
 #include <Adafruit_Sensor.h>
 #include <Adafruit_AHTX0.h>
+#include <MQUnifiedsensor.h>
+#include "ScioSense_ENS160.h"
+#include <MPU6500_WE.h>
 #include <TinyGPSPlus.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
-#include <math.h>
-#include <HTTPClient.h>
 #include <SPI.h>
 #include <SD.h>
 #include <FS.h>
+
 // --------------------------------------
+//#define ENS160_I2CADDR_1 0x53
+//#define AHTXX_ADDRESS_X38 0x38
+#define AHT10_I2CADDR AHTX0_I2CADDR_ALTERNATE // AHTX0_I2CADDR_DEFAULT
+#define MPU6500_ADDR 0x68
+#define INA219_ADDR 0x40
+#define BMP280_ADDR 0x76
+#define SAMPLE_TIME 200
+//#define GPS_BAUDRATE 57600
+static const int RXPin = 16, TXPin = 17;
+static const uint32_t GPS_BAUDRATE = 9600;
+// ------------------ Activate actions --------------------------
+#define SERIALPRINT 1 // defined is ON and commented is OFF
+#define AHT 1 // defined is ON and commented is OFF
+//#define AHT21 1 // defined is ON and commented is OFF
+#define ENS 1 // defined is ON and commented is OFF
+#define GPS 1 // defined is ON and commented is OFF
+#define MPU 1 // defined is ON and commented is OFF
+#define BMP 1 // defined is ON and commented is OFF
+#define INA 1 // defined is ON and commented is OFF
+#define MQ 1 // defined is ON and commented is OFF
+#define Tellemetry_send 1 // defined is ON and commented is OFF
+#define SD_init 1 // defined is ON and commented is OFF
 
-#define SAMPLE_TIME 1500
-#define GPS_BAUDRATE 9600
-
-// ------------------ Activate SD and Tellemetry --------------------------
-#define SD_init 1 // 0 is OFF, 1 is ON
-// #define Tellemetry_send 0 // 0 is OFF, 1 is ON
-
-Adafruit_INA219 ina219_0 (0x68);
+ScioSense_ENS160 ens160(ENS160_I2CADDR_1); // I2C address of the ENS160 sensor
+#ifdef AHT21
+  #include <AHTxx.h>
+  AHTxx aht21(AHTXX_ADDRESS_X38, AHT2x_SENSOR); // I2C address and type of the AHT21 sensor
+#endif
+MPU6500_WE myMPU6500 = MPU6500_WE(MPU6500_ADDR);
+Adafruit_INA219 ina219_0 (INA219_ADDR);
 TinyGPSPlus gps;
 Adafruit_BMP280 bmp;
-Adafruit_MPU6050 mpu;
 Adafruit_AHTX0 aht;
-Adafruit_Sensor *aht_humidity, *aht_temp;
 SPIClass spi = SPIClass(HSPI);
-
-MPU_t MPU; // create an object
-I2Cbus i2c0; // initialize the I2C bus
+sensors_event_t humidityEvent, temperatureEvent;
 
 float current_mA = 0;
 float power_mW = 0;
@@ -47,33 +61,64 @@ float lon = 0;
 float temperatura_bmp = 0;
 float pressao_bmp = 0;
 float altitude_bmp = 0;
-double ozonio = 0;
-double carbono = 0;
-int16_t ax = 0, ay = 0, az = 0;
-int16_t gx = 0, gy = 0, gz = 0;
+float ax = 0, ay = 0, az = 0;
+float gx = 0, gy = 0, gz = 0;
+float temp = 0; 
+float resultantG = 0;
 String jsonStr;
-sensors_event_t humidity;
-sensors_event_t temp;
 
+//  ------------------ ENS160 and AHT21 definitions --------------------------
+float aqi = 0;
+float tvoc = 0;
+float eco2 = 0;
+float hp0 = 0;
+float hp1 = 0;
+float hp2 = 0;
+float hp3 = 0;
+float temperature = 0;
+float humidity = 0;
 
-//Definição dos parâmetros do sensor de O3
-#define RL_o3 10     // Resistência ao lado do DOUT_LED
-#define APin_o3 34   // Pino analógico utilizado
-float curve_o3[2] = {0.05775, 0.2647};  // Curva do gráfico em log do MQ131 para O3 (a, b)
-//Definição dos parâmetros do sensor de CO2
-#define RL_co2 10     // Resistência ao lado do DOUT_LED
-#define APin_co2 33   // Pino analógico utilizado
-float curve_co2[2] = {-0.32372, 0.648};  // Curva do gráfico em log do MQ135 para CO2 (a, b)
-float R0_co2 = 0;
-float R0_o3 = 0;
+//  ------------------  MQ135 Definitions --------------------------
+#define placa "ESP 32"
+#define Voltage_Resolution 3.3
+#define pin 34 //Analog input 0 of your esp32
+#define type "MQ-135" //MQ135
+#define ADC_Bit_Resolution 12 // For arduino UNO/MEGA/NANO
+#define RatioMQ135CleanAir 3.6//RS / R0 = 3.6 ppm
+#define DEFAULT_C02 423.16 //may 2024 default ppm of CO2 for calibration
+float calcR0 = 0;
+float R0 = 0;
+float RL = 0;
+float CO = 0;
+float Alcohol = 0;
+float cFactor = 0;
+float CO2_MQ = 0;
+float Toluen = 0;
+float NH4 = 0;
+float Aceton = 0;
+//#define calibration_button 13 //Pin to calibrate your sensor
+//Declare Sensor
+MQUnifiedsensor MQ135(placa, Voltage_Resolution, ADC_Bit_Resolution, pin, type);
+#define MQ135_DEFAULTPPM 418.82 //default ppm of CO2 for calibration
+#define MQ135_DEFAULTRO 68550 //default Ro for MQ135_DEFAULTPPM ppm of CO2
+// #define MQ135_DEFAULTRO 1726.5
+#define MQ135_SCALINGFACTOR 116.6020682 //CO2 gas value
+#define MQ135_EXPONENT -2.769034857 //CO2 gas value
+#define MQ135_MAXRSRO 2.428 //for CO2
+#define MQ135_MINRSRO 0.358 //for CO2
+/// Parameters for calculating ppm of CO2 from sensor resistance
+#define PARA 116.6020682
+#define PARB 2.769034857
+/// Parameters to model temperature and humidity dependence
+#define CORA 0.00035
+#define CORB 0.02718
+#define CORC 1.39538
+#define CORD 0.0018
 
 // -------------- Configuracoes WiFi -----------------------
 //Definindo as informações da rede Wi-Fi
 const char* ssid = "Embauba"; //Define o nome do ponto de acesso
 const char* password = "satelitaos2"; //Define a senha
-// Definindo as informações da servidor HTTP
-// const char* serverAddress = "https://obsat.org.br";
-// const char* endpoint = "/teste_post/envio.php";
 WiFiUDP udp;
 IPAddress raspberryPiIP(255, 255, 255, 255);  // Replace with the Raspberry Pi's IP address (192, 168, 4, 255)
 const int udpPort = 1234;
@@ -83,11 +128,7 @@ const int udpPort = 1234;
 #define MISO 12
 #define MOSI 13
 #define CS 15
-// -------------- Configuracoes I2C -----------------------
-#define SDA = 21;
-#define SCL = 22;
-#define CLOCK_SPEED = 400000;  // range from 100 KHz ~ 400Hz
-// ---------------------------------------------------------- // File dataFile;
+// File dataFile;
 
 // ------------------------ Leituras ------------------------
 
@@ -111,38 +152,61 @@ void readINA(){
 }
 
 // -------------- GPS ----------------
-
-void readGPS()
-{
-
-  Serial.print(F("Location: "));
-  if (gps.location.isValid()){
+void displayInfo() {
+  Serial.print(F("Location: ")); 
+  if (gps.location.isValid()) {
     Serial.print(gps.location.lat(), 6);
     Serial.print(F(","));
     Serial.print(gps.location.lng(), 6);
     lat = gps.location.lat();
     lon = gps.location.lng();
-  }
-  else
-  {
+  } else {
     Serial.print(F("INVALID"));
   }
-  Serial.print(F("DATE: "));
-  if (gps.date.isValid() && gps.time.isValid()) {
-        Serial.print(gps.date.year());
-        Serial.print(F("-"));
-        Serial.print(gps.date.month());
-        Serial.print(F("-"));
-        Serial.print(gps.date.day());
-        Serial.print(F(" "));
-        Serial.print(gps.time.hour());
-        Serial.print(F(":"));
-        Serial.print(gps.time.minute());
-        Serial.print(F(":"));
-        Serial.println(gps.time.second());
-      } else {
-        Serial.println(F("INVALID date-time"));
-      }
+
+  Serial.print(F("  Date/Time: "));
+  if (gps.date.isValid()) {
+    Serial.print(gps.date.month());
+    Serial.print(F("/"));
+    Serial.print(gps.date.day());
+    Serial.print(F("/"));
+    Serial.print(gps.date.year());
+  } else {
+    Serial.print(F("INVALID"));
+  }
+
+  Serial.print(F(" "));
+  if (gps.time.isValid()) {
+    if (gps.time.hour() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.hour());
+    Serial.print(F(":"));
+    if (gps.time.minute() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.minute());
+    Serial.print(F(":"));
+    if (gps.time.second() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.second());
+    Serial.print(F("."));
+    if (gps.time.centisecond() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.centisecond());
+  } else {
+    Serial.print(F("INVALID"));
+  }
+
+  Serial.println();
+}
+
+void readGPS()
+{
+  while(Serial2.available() > 0) {
+    if(gps.encode(Serial2.read())) {
+      displayInfo();
+    }
+  }
+
+  if(millis() > 5000 && gps.charsProcessed() < 10) {
+    Serial.println(F("No GPS detected: check wiring."));
+    while (true);
+  }
 }
 
 // -------------- BMP ----------------
@@ -165,126 +229,110 @@ void readBMP(){
 
 }
 
-// -------------- MQ131 ----------------
-
-void readMQ131(){
-    double ADCread=0;
-    double RS, RSR0, Y, X;
-
-    //5 Leituras e tira a media
-    for (int count=0;count<5;count++) {
-                    ADCread += analogRead(APin_o3);
-                    delay(50);
-    }
-    ADCread = ADCread/5;
-    //Calcula RS
-    RS = (float)RL_o3 * (4095-ADCread) / ADCread;
-    //Calcula RS/R0
-    RSR0 = RS/R0_o3;
-    //Tira o Log de RSR0 para utilizar na curva log-log (Y)
-    Y = log10(RSR0);
-    //Calcula o X
-    X = (Y - curve_o3[1])/curve_o3[0];
-    ozonio =  pow10(X);
-    Serial.print("Ozonio: ");
-    Serial.println(ozonio);
-}
-
 // -------------- MQ135 ----------------
 
+float getCorrectionFactor(float t, float h) {
+  return CORA * t * t - CORB * t + CORC - (h-33.)*CORD;
+}
+
+float getCorrectedResistance(long resvalue, float t, float h) {
+  return resvalue/getCorrectionFactor(t, h);
+}
+
+float getCorrectedPPM(long resvalue,float t, float h, long ro) {
+  return PARA * pow((getCorrectedResistance(resvalue, t, h)/ro), -PARB);
+}
+
+// -------------- AHT ----------------
+void readAHT(){
+  aht.getEvent(&humidityEvent, &temperatureEvent);
+  Serial.print("Humidity: ");
+  Serial.print(humidityEvent.relative_humidity);
+  Serial.println("% rH");
+}
+
 void readMQ135(){
-    double ADCread=0;
-    double RS, RSR0, Y, X;
-    //5 Leituras e tira a media
-    for (int count=0;count<5;count++) {
-                    ADCread += analogRead(APin_co2);
-                    delay(50);
-    }
-    ADCread = ADCread/5;
-    //Calcula RS
-    RS = (float)RL_co2 * (4095-ADCread) / ADCread;
-    //Calcula RS/R0
-    RSR0 = RS/R0_co2;
-    //Tira o Log de RSR0 para utilizar na curva log-log (Y)
-    Y = log10(RSR0);
-    //Calcula o X
-    X = (Y - curve_co2[1])/curve_co2[0];
-    //Retorna 10^X = PPM
-    carbono = pow10(X);
-    Serial.print("Carbono: ");
-    Serial.println(carbono);
+  // if( isinf(MQ135.getR0()) && millis() < 60000 ){
+  //   for(int i = 1; i<=10; i ++)
+  //   { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
+  //     calcR0 += MQ135.calibrate(RatioMQ135CleanAir);
+  //     Serial.print(".");}
+  //   MQ135.setR0(calcR0/10);
+  //   Serial.print("  done! RO value is:");
+  //   Serial.println(calcR0/10);
+  // }
+  R0 = MQ135.getR0(); 
+  RL = MQ135.getRL();
+  MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
+  MQ135.setA(605.18); MQ135.setB(-3.937); // Configure the equation to calculate CO concentration value
+  CO = MQ135.readSensor(); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
+  MQ135.setA(77.255); MQ135.setB(-3.18); //Configure the equation to calculate Alcohol concentration value
+  Alcohol = MQ135.readSensor(); // SSensor will read PPM concentration using the model, a and b values set previously or from the setup
+  cFactor = 0;
+  if (!isnan(temperatureEvent.temperature) && !isnan(humidityEvent.relative_humidity)) cFactor = getCorrectionFactor(temperatureEvent.temperature, humidityEvent.relative_humidity);
+  MQ135.setA(110.47); MQ135.setB(-2.862); // Configure the equation to calculate CO2 concentration value
+  CO2_MQ = MQ135.readSensor(false, cFactor); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
+  MQ135.setA(44.947); MQ135.setB(-3.445); // Configure the equation to calculate Toluen concentration value
+  Toluen = MQ135.readSensor(); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
+  MQ135.setA(102.2); MQ135.setB(-2.473); // Configure the equation to calculate NH4 concentration value
+  NH4 = MQ135.readSensor(); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
+  MQ135.setA(34.668); MQ135.setB(-3.369); // Configure the equation to calculate Aceton concentration value
+  Aceton = MQ135.readSensor(); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
+  #ifdef SERIALPRINT
+    Serial.print("| CO:  "); Serial.print(CO); 
+    Serial.print("   | Alcohol:  "); Serial.print(Alcohol);
+    Serial.print("   | CO2:  "); Serial.print(CO2_MQ + DEFAULT_C02); 
+    Serial.print("   | Toluen:  "); Serial.print(Toluen); 
+    Serial.print("   | NH4:  "); Serial.print(NH4); 
+    Serial.print("   | Aceton:  "); Serial.print(Aceton);
+    Serial.println("   |"); 
+  #endif
 }
 
 // -------------- MPU----------------
-
-void readMPU6050(){
-  sensors_event_t a, g, temp;
-  mpu.getEvent(&a, &g, &temp);
-  ax = a.acceleration.x;
-  ay = a.acceleration.y;
-  ay = a.acceleration.z;
-  gx = g.gyro.x;
-  gy = g.gyro.y;
-  gz = g.gyro.z;
-}
-
-
 void readMPU6500(){
 // Read accelerometer data
-  int16_t ax = MPU.readAccelX_mss();
-  int16_t ay = MPU.readAccelY_mss();
-  int16_t az = MPU.readAccelZ_mss();
-
+  xyzFloat gValue = myMPU6500.getGValues();
+  xyzFloat gyr = myMPU6500.getGyrValues();
+  //temp = myMPU6500.getTemperature(); // Read temperature data
+  //resultantG = myMPU6500.getResultantG(gValue);
+  ax = gValue.x;
+  ay = gValue.y;
+  az = gValue.z;
   // Read gyroscope data
-  int16_t gx = MPU.readGyroX_rads();
-  int16_t gy = MPU.readGyroY_rads();
-  int16_t gz = MPU.readGyroZ_rads();
-
-  // Read temperature data
-  int16_t temp = MPU.readTempDegC();
-
-  // Print the data
-  Serial.print("Accel X: ");
-  Serial.print(ax);
-  Serial.print("\t");
-  Serial.print("Accel Y: ");
-  Serial.print(ay);
-  Serial.print("\t");
-  Serial.print("Accel Z: ");
-  Serial.print(az);
-  Serial.print("\t");
-  Serial.print("Gyro X: ");
-  Serial.print(gx);
-  Serial.print("\t");
-  Serial.print("Gyro Y: ");
-  Serial.print(gy);
-  Serial.print("\t");
-  Serial.print("Gyro Z: ");
-  Serial.print(gz);
-  Serial.print("\t");
-  Serial.print("Temperature: ");
-  Serial.println(temp);
-
-  delay(1000); // wait for 1 second
-
+  gx = gyr.x;
+  gy = gyr.y;
+  gz = gyr.z;
 }
-// -------------- AHT ----------------
 
-void readAHT(){
-  // Serial.print("AHT temperatura: ");
-  // Serial.print(aht_temp);
-  // Serial.print("\nAHT Umidade: ");
-  // Serial.print(aht_humidity);
-  aht_humidity->getEvent(&humidity);
-  aht_temp->getEvent(&temp);
-  Serial.print("AHT temperatura: ");
-  Serial.println(temp.temperature);
-  Serial.print("Umidade: ");
-  Serial.println(humidity.relative_humidity);
+// -------------- ENS160 ----------------
+void readENS160(){
+  // ens160.measure(0);
+  // float aqi = ens160.getAQI();
+  // float tvoc = ens160.getTVOC();
+  // float eco2 = ens160.geteCO2();
+  // Serial.println("AQI: " + String(aqi));
+  // Serial.println("TVOC: " + String(tvoc));
+  // Serial.println("eCO2: " + String(eco2));
+  // float temperature = aht21.readTemperature();
+  // float humidity = aht21.readHumidity();
+  // Serial.println("Temperature: " + String(temperature));
+  // Serial.println("Humidity: " + String(humidity));
+  ////////////////////
+  ens160.measure(true);
+  ens160.measureRaw(true);
+  eco2 = ens160.geteCO2();
+  Serial.print("AQI: ");Serial.print(ens160.getAQI());Serial.print("\t");
+  Serial.print("TVOC: ");Serial.print(ens160.getTVOC());Serial.print("ppb\t");
+  Serial.print("eCO2: ");Serial.print(ens160.geteCO2());Serial.print("ppm\t");
+  Serial.print("R HP0: ");Serial.print(ens160.getHP0());Serial.print("Ohm\t");
+  Serial.print("R HP1: ");Serial.print(ens160.getHP1());Serial.print("Ohm\t");
+  Serial.print("R HP2: ");Serial.print(ens160.getHP2());Serial.print("Ohm\t");
+  Serial.print("R HP3: ");Serial.print(ens160.getHP3());Serial.print("Ohm\t");
+  Serial.println();
 }
 
 // -------------- SAVE SD CARD ----------------
-
 void saveSD(fs ::FS &fs, const char *path, const char *message){
   Serial.printf("SD saving: Appending to file : %s\n", path);
   File file = fs.open(path, FILE_APPEND);
@@ -319,8 +367,8 @@ String Json(){
   DynamicJsonDocument sensores(256);
   //Adicionando os valores dos sensores ao JsonObject
   sensores["sat"] = "Embauba";
-  // sensores["cur"] = current_mA;
-  // sensores["pot"] = power_mW;
+  sensores["time"] = millis();
+  sensores["cur"] = current_mA;
   sensores["lat"] = lat;
   sensores["long"] = lon;
   sensores["temp"] = temperatura_bmp;
@@ -332,17 +380,14 @@ String Json(){
   sensores["aX"] = ax;
   sensores["aY"] = ay;
   sensores["aZ"] = az;
-  sensores["o3"] = ozonio;
-  sensores["co2"] = carbono;
-  //Convertendo o JsonDocument em uma string JSON
-  String jsonString;
-  serializeJson(sensores, jsonString);
-  // Imprimindo a string JSON no monitor serial
+  sensores["eco2"] = eco2;
+  sensores["co2_mq"] = CO2_MQ + DEFAULT_C02;
+  String jsonString; //Convertendo o JsonDocument em uma string JSON
+  serializeJson(sensores, jsonString); // Imprimindo a string JSON no monitor serial
   return jsonString;
 }
 
 // -------------- SEND ESP32 JSON TO BASE STATION ----------------
-
 void espToRasp(String jsonStr){
   // StaticJsonDocument<240> jsonBuffer; //Cada par de valores utiliza aproximadamente 16 bytes
   //                                     //Cada par nome-vetor utiliza aproximadamente 16*(1+N) bytes, em que N é o comprimento do vetor 
@@ -379,7 +424,6 @@ void writeFile(fs ::FS &fs, const char *path, const char *message)
 
 //  ---------------------------------------------- void setup -----------------------------------------------------------------
 void setup (){
-
   Serial.begin(115200);
   Serial.println("Hello, SACup!");
   Serial.println();
@@ -394,85 +438,201 @@ void setup (){
   Serial.println(WiFi.softAPIP()); //Endereço de IP
   udp.begin(udpPort); // Choose a port number
 
-  // Initialize MPU
-  i2c0.begin(SDA, SCL, CLOCK); // initialize the I2C bus
-  MPU.setBus(i2c0); // set the communication bus
-  // if (!mpu.begin(0x68)) {
-  // Serial.println("Failed to find MPU6050 chip");
-  // while (1) {
-  //   delay(10);
-  //   }
-  // }
-  // Serial.println("MPU initialized...");
+// Initialize GPS
+  #ifdef GPS
+    Serial2.begin(GPS_BAUDRATE, SERIAL_8N1, RXPin, TXPin);
+    Serial.println("GPS initialization done..."); 
+  #endif
 
-  //setupt motion detection
-  mpu.setHighPassFilter(MPU6050_HIGHPASS_0_63_HZ);
-  mpu.setMotionDetectionThreshold(1);
-  mpu.setMotionDetectionDuration(20);
-  mpu.setInterruptPinLatch(true);	// Keep it latched.  Will turn off when reinitialized.
-  mpu.setInterruptPinPolarity(true);
-  mpu.setMotionInterrupt(true);
+// Initialize MQ135
+  #ifdef MQ
+    float calcR0 = 0;
+    MQ135.setRL(1); //Set Rl as 1kOhm
+    MQ135.setRegressionMethod(1); //_PPM =  a*ratio^b //Set math model to calculate the PPM concentration and the value of constants
+    MQ135.init(); 
+    Serial.print("Calibrating gas sensor, please wait.");
+    for(int i = 1; i<=100; i ++)
+    { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
+      calcR0 += MQ135.calibrate(RatioMQ135CleanAir);
+      Serial.print(".");}
+    MQ135.setR0(calcR0/100);
+    Serial.print("  done! RO value is:");
+    Serial.println(calcR0/100);
+    if(isinf(calcR0)) {
+    Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");}
+    if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply");}//while(1);
+  #endif
 
-  // Initialize INA219
-  if (! ina219_0.begin()) 
-	{ 
-		while (1) {
-            Serial.println("Failed to find INA219"); 
-            delay(10); 
-	    } 
+  // Initialize I2C
+  Wire.begin();
+  Wire.setClock(100000); // Set the I2C clock speed to 100 kHz
+
+  // Initialize MPU6500
+  #ifdef MPU
+    if(!myMPU6500.init()){
+      Serial.println("MPU6500 does not respond");
     }
-    Serial.println("INA initialized...");
+    else{
+      Serial.println("MPU6500 is connected");
+    }
+    Serial.println("Position you MPU6500 flat and don't move it - calibrating...");
+    myMPU6500.autoOffsets();
+    Serial.println("Done!");
+    myMPU6500.enableGyrDLPF();
+    myMPU6500.setGyrDLPF(MPU6500_DLPF_6);
+    myMPU6500.setSampleRateDivider(5);
+    myMPU6500.setAccRange(MPU6500_ACC_RANGE_16G);
+    myMPU6500.enableAccDLPF(true);
+    myMPU6500.setAccDLPF(MPU6500_DLPF_6);
+  #endif
 
-    // Initialize GPS
-    Serial2.begin(GPS_BAUDRATE);
-    Serial.println("GPS initialized..."); 
+// Initialize AHT
+  #ifdef AHT
+    if (!aht.begin(&Wire, 0, AHT10_I2CADDR)) {
+      Serial.println("Failed to find AHT10 chip");
+      // while (1) {
+      //   delay(10);
+      // }
+      }
+    else{Serial.println("AHT10 initialized");}
+  #endif
 
-    // Initialize BMP
-    if (!bmp.begin(0x76)) { /*Definindo o endereço I2C como 0x76. Mudar, se necessário, para (0x77)*/
+// Initialize ENS160
+  #ifdef ENS
+    // Serial.println("ENS160 - Digital air quality sensor");
+    // if (!ens160.begin()) {
+    //   Serial.println("Could not find a valid ENS160 sensor, check wiring!");
+    //   //while (1);
+    // }
+    // else{
+    // Serial.println("ENS160 sensor found");
+    // ens160.setMode(ENS160_OPMODE_STD);  // Set standard mode of operation
+    // Serial.println("ENS160 sensor set to standard mode");}
+    /////////////////
+    ens160.begin();
+    Serial.println(ens160.available() ? "done." : "failed!");
+    if (ens160.available()) {
+      // Print ENS160 versions
+      Serial.print("\tRev: "); Serial.print(ens160.getMajorRev());
+      Serial.print("."); Serial.print(ens160.getMinorRev());
+      Serial.print("."); Serial.println(ens160.getBuild());
+      Serial.print("\tStandard mode ");
+      Serial.println(ens160.setMode(ENS160_OPMODE_STD) ? "done." : "failed!" );
+    }
+    else{
+      Serial.println("Could not find a valid ENS160 sensor, check wiring!");
+    }
+  #endif
+
+  #ifdef AHT21
+    if (!aht21.begin()) {
+    Serial.println("Could not find a valid ATH21 sensor, check wiring!");
+    }
+    else{
+      Serial.println("ATH21 sensor found");
+      // aht21.setResolution(AHTXX_14BIT_RESOLUTION); // Set 14-bit resolution
+      Serial.println("ATH21 sensor set to 14-bit resolution");
+    }
+  #endif
+  
+  // Initialize BMP
+  #ifdef BMP
+    if (!bmp.begin(BMP280_ADDR)) { /*Definindo o endereço I2C como 0x76. Mudar, se necessário, para (0x77)*/
     //Imprime mensagem de erro no caso de endereço invalido ou não localizado. Modifique o valor 
     Serial.println(F(" BMP280 not found, try another address!"));
-
-    while (1) delay(10);
+    // while (1) delay(10);
     }
-    Serial.println("BMP initialized...");
+    else{ 
+      Serial.println("BMP initialized...");
+    }
+  #endif
+  //Initialize SD
+  #ifdef SD_init
+    Serial.println("SD initializing...");
+    spi.begin(SCK, MISO, MOSI, CS);
+    if (!SD.begin(CS, spi, 80000000))
+    {
+      Serial.println(" Card Mount Failed ");
+      return;
+    }
+    uint8_t cardType = SD.cardType();
+    if (cardType == CARD_NONE)
+    {
+      Serial.println("No SD card attached ");
+      return;
+    }
+    writeFile(SD, "/ hello . txt ", "");
+  #endif
 
-    //Initialize SD
-    #ifdef SD_init
-      Serial.println("SD initializing...");
-      spi.begin(SCK, MISO, MOSI, CS);
-      if (!SD.begin(CS, spi, 80000000))
-      {
-        Serial.println(" Card Mount Failed ");
-        return;
-      }
-      uint8_t cardType = SD.cardType();
-      if (cardType == CARD_NONE)
-      {
-        Serial.println("No SD card attached ");
-        return;
-      }
-      writeFile(SD, "/ EmbaubaDATA.txt ", "");
-    #endif
+  #ifdef INA
+    // Initialize INA219
+    if (! ina219_0.begin()) 
+    {
+      //while (1) {
+        Serial.println("Failed to find INA219"); 
+      //delay(10); 
+      //} 
+    }
+    else{
+      Serial.println("INA initialized...");
+    }
+  #endif
 
-  Serial.println("All programming codes initialize. Default code running!");   
+  #ifdef MQ
+  if(isinf(calcR0)){
+    float calcR0 = 0;
+    Serial.print("Calibrating gas sensor, please wait.");
+    for(int i = 1; i<=100; i ++)
+    { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
+      calcR0 += MQ135.calibrate(RatioMQ135CleanAir);
+      Serial.print(".");}
+    MQ135.setR0(calcR0/100);
+    Serial.print("  done! RO value is:");
+    Serial.println(calcR0/100);
+    if(isinf(calcR0)) {
+    Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");}
+    if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply");}//while(1);
+    }
+  #endif
+
+  Serial.println("All startup programming codes done. Default code running!");
+
 }
 
 //  ---------------------------------------------- void loop -----------------------------------------------------------------
 void loop() {
+    #ifdef INA
+      readINA();
+    #endif
+    
+    #ifdef GPS
+      readGPS();
+    #endif
 
-    //readINA();
-    readGPS();
-    readBMP();
-    //readMQ131();
-    readMQ135();
-    //readMPU();
-    //readAHT();
-    jsonStr = Json(); //jsonStr = ManualJson();
-    Serial.println(jsonStr);
+    #ifdef BMP
+      readBMP();
+    #endif
+
+    #ifdef AHT
+      readAHT();
+    #endif
+
+    #ifdef MQ
+      readMQ135();
+    #endif
+
+    #ifdef MPU
+      readMPU6500();
+    #endif
+
+    #ifdef ENS
+      readENS160();
+    #endif
+
+    jsonStr = Json(); 
+    //Serial.println(jsonStr);
     
     #ifdef SD_init
-      String timeString = getCurrentTime();
-      saveSD(SD, "/ hello . txt ", timeString.c_str());
       saveSD(SD, "/ hello . txt ", jsonStr.c_str());
     #endif   
 
