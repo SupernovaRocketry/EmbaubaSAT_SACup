@@ -16,13 +16,13 @@
 #include <FS.h>
 
 // --------------------------------------
+#define SAMPLE_TIME 250
 //#define ENS160_I2CADDR_1 0x53
 //#define AHTXX_ADDRESS_X38 0x38
 #define AHT10_I2CADDR AHTX0_I2CADDR_ALTERNATE // AHTX0_I2CADDR_DEFAULT
 #define MPU6500_ADDR 0x68
 #define INA219_ADDR 0x40
 #define BMP280_ADDR 0x76
-#define SAMPLE_TIME 200
 //#define GPS_BAUDRATE 57600
 static const int RXPin = 16, TXPin = 17;
 static const uint32_t GPS_BAUDRATE = 9600;
@@ -40,9 +40,11 @@ static const uint32_t GPS_BAUDRATE = 9600;
 #define SD_init 1 // defined is ON and commented is OFF
 
 ScioSense_ENS160 ens160(ENS160_I2CADDR_1); // I2C address of the ENS160 sensor
+unsigned long lastMeasurementTime = 1000;
+const unsigned long measurementInterval = 4000;
 #ifdef AHT21
   #include <AHTxx.h>
-  AHTxx aht21(AHTXX_ADDRESS_X38, AHT2x_SENSOR); // I2C address and type of the AHT21 sensor
+  AHTxx aht21(AHTXX_ADDRESS_X38  , AHT2x_SENSOR); // I2C address and type of the AHT21 sensor
 #endif
 MPU6500_WE myMPU6500 = MPU6500_WE(MPU6500_ADDR);
 Adafruit_INA219 ina219_0 (INA219_ADDR);
@@ -66,11 +68,12 @@ float gx = 0, gy = 0, gz = 0;
 float temp = 0; 
 float resultantG = 0;
 String jsonStr;
+String jsonStrFull;
 
 //  ------------------ ENS160 and AHT21 definitions --------------------------
 float aqi = 0;
 float tvoc = 0;
-float eco2 = 0;
+float CO2_ENS = 0;
 float hp0 = 0;
 float hp1 = 0;
 float hp2 = 0;
@@ -306,30 +309,34 @@ void readMPU6500(){
 }
 
 // -------------- ENS160 ----------------
-void readENS160(){
-  // ens160.measure(0);
-  // float aqi = ens160.getAQI();
-  // float tvoc = ens160.getTVOC();
-  // float eco2 = ens160.geteCO2();
-  // Serial.println("AQI: " + String(aqi));
-  // Serial.println("TVOC: " + String(tvoc));
-  // Serial.println("eCO2: " + String(eco2));
-  // float temperature = aht21.readTemperature();
-  // float humidity = aht21.readHumidity();
-  // Serial.println("Temperature: " + String(temperature));
-  // Serial.println("Humidity: " + String(humidity));
+void readENS(){
+  #ifdef AHT21
+  float temperature = aht21.readTemperature();
+  float humidity = aht21.readHumidity();
+  Serial.println("Temperature: " + String(temperature));
+  Serial.println("Humidity: " + String(humidity));
+  #endif
+  //ens160.measureRaw(0);
+  float aqi = ens160.getAQI();
+  float tvoc = ens160.getTVOC();
+  float CO2_ENS = ens160.geteCO2();
+  Serial.println("AQI: " + String(aqi));
+  Serial.println("TVOC: " + String(tvoc));
+  Serial.println("eCO2: " + String(CO2_ENS));
   ////////////////////
-  ens160.measure(true);
-  ens160.measureRaw(true);
-  eco2 = ens160.geteCO2();
-  Serial.print("AQI: ");Serial.print(ens160.getAQI());Serial.print("\t");
-  Serial.print("TVOC: ");Serial.print(ens160.getTVOC());Serial.print("ppb\t");
-  Serial.print("eCO2: ");Serial.print(ens160.geteCO2());Serial.print("ppm\t");
-  Serial.print("R HP0: ");Serial.print(ens160.getHP0());Serial.print("Ohm\t");
-  Serial.print("R HP1: ");Serial.print(ens160.getHP1());Serial.print("Ohm\t");
-  Serial.print("R HP2: ");Serial.print(ens160.getHP2());Serial.print("Ohm\t");
-  Serial.print("R HP3: ");Serial.print(ens160.getHP3());Serial.print("Ohm\t");
-  Serial.println();
+  
+  ////////////////////
+  // ens160.measure(true);
+  // ens160.measureRaw(true);
+  // Serial.print("AQI: ");Serial.print(ens160.getAQI());Serial.print("\t");
+  // Serial.print("TVOC: ");Serial.print(ens160.getTVOC());Serial.print("ppb\t");
+  // Serial.print("eCO2: ");Serial.print(ens160.geteCO2());Serial.print("ppm\t");
+  // CO2_ENS = ens160.geteCO2();
+  // Serial.print("R HP0: ");Serial.print(ens160.getHP0());Serial.print("Ohm\t");
+  // Serial.print("R HP1: ");Serial.print(ens160.getHP1());Serial.print("Ohm\t");
+  // Serial.print("R HP2: ");Serial.print(ens160.getHP2());Serial.print("Ohm\t");
+  // Serial.print("R HP3: ");Serial.print(ens160.getHP3());Serial.print("Ohm\t");
+  // Serial.println();
 }
 
 // -------------- SAVE SD CARD ----------------
@@ -369,22 +376,54 @@ String Json(){
   sensores["sat"] = "Embauba";
   sensores["time"] = millis();
   sensores["cur"] = current_mA;
-  sensores["lat"] = lat;
-  sensores["long"] = lon;
   sensores["temp"] = temperatura_bmp;
   sensores["press"] = pressao_bmp;
   sensores["alt"] = altitude_bmp;
-  sensores["gX"] = gx;
-  sensores["gY"] = gy;
-  sensores["gZ"] = gz;
+  sensores["lat"] = lat;
+  sensores["long"] = lon;
   sensores["aX"] = ax;
   sensores["aY"] = ay;
   sensores["aZ"] = az;
-  sensores["eco2"] = eco2;
-  sensores["co2_mq"] = CO2_MQ + DEFAULT_C02;
+  sensores["gX"] = gx;
+  sensores["gY"] = gy;
+  sensores["gZ"] = gz;
+  sensores["co"] = CO;
+  sensores["co2"] = CO2_MQ + DEFAULT_C02;
   String jsonString; //Convertendo o JsonDocument em uma string JSON
   serializeJson(sensores, jsonString); // Imprimindo a string JSON no monitor serial
   return jsonString;
+}
+
+String FullJson(){
+  DynamicJsonDocument sensores2(512);
+  //Adicionando os valores dos sensores ao JsonObject
+  sensores2["sat"] = "Embauba";
+  sensores2["time"] = millis();
+  sensores2["cur"] = current_mA;
+  sensores2["pow"] = power_mW;
+  sensores2["busV"] = busvoltage;
+  sensores2["temp"] = temperatura_bmp;
+  sensores2["press"] = pressao_bmp;
+  sensores2["alt"] = altitude_bmp;
+  sensores2["hum"] = humidityEvent.relative_humidity;
+  sensores2["lat"] = lat;
+  sensores2["long"] = lon;
+  sensores2["aX"] = ax;
+  sensores2["aY"] = ay;
+  sensores2["aZ"] = az;
+  sensores2["gX"] = gx;
+  sensores2["gY"] = gy;
+  sensores2["gZ"] = gz;
+  sensores2["alc"] = Alcohol;
+  sensores2["tol"] = Toluen;
+  sensores2["NH4"] = NH4;
+  sensores2["ace"] = Aceton;
+  sensores2["co"] = CO;
+  sensores2["eco2"] = CO2_ENS;
+  sensores2["co2"] = CO2_MQ + DEFAULT_C02;
+  String jsonStringFull; //Convertendo o JsonDocument em uma string JSON
+  serializeJson(sensores2, jsonStringFull); // Imprimindo a string JSON no monitor serial
+  return jsonStringFull;
 }
 
 // -------------- SEND ESP32 JSON TO BASE STATION ----------------
@@ -488,40 +527,14 @@ void setup (){
 
 // Initialize AHT
   #ifdef AHT
-    if (!aht.begin(&Wire, 0, AHT10_I2CADDR)) {
-      Serial.println("Failed to find AHT10 chip");
-      // while (1) {
-      //   delay(10);
-      // }
+    if (!aht.begin(&Wire, 0, AHTX0_I2CADDR_ALTERNATE)) {
+      Serial.println("Failed to find AHT10 chip with 0x39 address");
+      if (!aht.begin(&Wire, 0, AHTX0_I2CADDR_DEFAULT)) {
+      Serial.println("Failed to find AHT10 chip with 0x38 address");
       }
-    else{Serial.println("AHT10 initialized");}
-  #endif
-
-// Initialize ENS160
-  #ifdef ENS
-    // Serial.println("ENS160 - Digital air quality sensor");
-    // if (!ens160.begin()) {
-    //   Serial.println("Could not find a valid ENS160 sensor, check wiring!");
-    //   //while (1);
-    // }
-    // else{
-    // Serial.println("ENS160 sensor found");
-    // ens160.setMode(ENS160_OPMODE_STD);  // Set standard mode of operation
-    // Serial.println("ENS160 sensor set to standard mode");}
-    /////////////////
-    ens160.begin();
-    Serial.println(ens160.available() ? "done." : "failed!");
-    if (ens160.available()) {
-      // Print ENS160 versions
-      Serial.print("\tRev: "); Serial.print(ens160.getMajorRev());
-      Serial.print("."); Serial.print(ens160.getMinorRev());
-      Serial.print("."); Serial.println(ens160.getBuild());
-      Serial.print("\tStandard mode ");
-      Serial.println(ens160.setMode(ENS160_OPMODE_STD) ? "done." : "failed!" );
-    }
-    else{
-      Serial.println("Could not find a valid ENS160 sensor, check wiring!");
-    }
+      else{Serial.println("AHT10 initialized with default address");}
+      }
+   else{Serial.println("AHT10 initialized with alternate address");}
   #endif
 
   #ifdef AHT21
@@ -578,21 +591,75 @@ void setup (){
     }
   #endif
 
+  // Initialize ENS160
+  #ifdef ENS
+    Serial.println("ENS160 - Digital air quality sensor");
+    if (!ens160.begin()) {
+      Serial.println("Could not find a valid ENS160 sensor, check wiring!");
+      //while (1);
+    }
+    else{
+    Serial.println("ENS160 sensor found");
+    ens160.setMode(ENS160_OPMODE_STD);  // Set standard mode of operation
+    Serial.println("ENS160 sensor set to standard mode");
+    ens160.measure(1);
+    lastMeasurementTime = millis();
+    }
+    
+    /////////////////
+    // ens160.begin();
+    // Serial.println(ens160.available() ? "done." : "failed!");
+    // if (ens160.available()) {
+    //   // Print ENS160 versions
+    //   Serial.print("\tRev: "); Serial.print(ens160.getMajorRev());
+    //   Serial.print("."); Serial.print(ens160.getMinorRev());
+    //   Serial.print("."); Serial.println(ens160.getBuild());
+    //   Serial.print("\tStandard mode ");
+    //   Serial.println(ens160.setMode(ENS160_OPMODE_STD) ? "done." : "failed!" );
+    // }
+    // else{
+    //   Serial.println("Could not find a valid ENS160 sensor, check wiring!");
+    // }
+  #endif
+
   #ifdef MQ
-  if(isinf(calcR0)){
+  int maxCalibrationAttempts = 4;
+  for (int i = 0; i < maxCalibrationAttempts; i++) {
     float calcR0 = 0;
     Serial.print("Calibrating gas sensor, please wait.");
-    for(int i = 1; i<=100; i ++)
+    for(int j = 1; j<=100; j ++)
     { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
-      calcR0 += MQ135.calibrate(RatioMQ135CleanAir);
-      Serial.print(".");}
+      calcR0 += MQ135.calibrate(RatioMQ135CleanAir); //Serial.print(".");
+    }
     MQ135.setR0(calcR0/100);
     Serial.print("  done! RO value is:");
     Serial.println(calcR0/100);
-    if(isinf(calcR0)) {
-    Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");}
-    if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply");}//while(1);
+    if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply");}
+    if (!isinf(calcR0)) {
+      break;
+    } else {
+      Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");
     }
+  }
+  // if(isinf(calcR0)){
+
+  //   float calcR0 = 0;
+  //   Serial.print("Calibrating gas sensor, please wait.");
+  //   for(int i = 1; i<=100; i ++)
+  //   { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
+  //     calcR0 += MQ135.calibrate(RatioMQ135CleanAir);
+  //     Serial.print(".");}
+  //   MQ135.setR0(calcR0/100);
+  //   Serial.print("  done! RO value is:");
+  //   Serial.println(calcR0/100);
+  //   if(isinf(calcR0)) {
+  //   Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");
+  //   }
+    // if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply");}//while(1);
+    // cont++;
+    // while(isinf(MQ135.getR0()) && cont < 3);
+
+    // }
   #endif
 
   Serial.println("All startup programming codes done. Default code running!");
@@ -626,19 +693,23 @@ void loop() {
     #endif
 
     #ifdef ENS
-      readENS160();
+    if (millis() - lastMeasurementTime >= measurementInterval) {
+      readENS();
+      lastMeasurementTime = millis();
+      ens160.measure(0);
+      }
     #endif
 
     jsonStr = Json(); 
     //Serial.println(jsonStr);
-    
-    #ifdef SD_init
-      saveSD(SD, "/ hello . txt ", jsonStr.c_str());
-    #endif   
-
     #ifdef Tellemetry_send
       espToRasp(jsonStr);
     #endif
+
+    jsonStrFull = FullJson();
+    #ifdef SD_init
+      saveSD(SD, "/ hello . txt ", jsonStrFull.c_str());
+    #endif   
 
     delay(SAMPLE_TIME);
 }
