@@ -602,10 +602,9 @@ void setup (){
     Serial.println("ENS160 sensor found");
     ens160.setMode(ENS160_OPMODE_STD);  // Set standard mode of operation
     Serial.println("ENS160 sensor set to standard mode");
-    ens160.measure(1);
+    ens160.measure(0);
     lastMeasurementTime = millis();
     }
-    
     /////////////////
     // ens160.begin();
     // Serial.println(ens160.available() ? "done." : "failed!");
@@ -641,25 +640,6 @@ void setup (){
       Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");
     }
   }
-  // if(isinf(calcR0)){
-
-  //   float calcR0 = 0;
-  //   Serial.print("Calibrating gas sensor, please wait.");
-  //   for(int i = 1; i<=100; i ++)
-  //   { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
-  //     calcR0 += MQ135.calibrate(RatioMQ135CleanAir);
-  //     Serial.print(".");}
-  //   MQ135.setR0(calcR0/100);
-  //   Serial.print("  done! RO value is:");
-  //   Serial.println(calcR0/100);
-  //   if(isinf(calcR0)) {
-  //   Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");
-  //   }
-    // if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply");}//while(1);
-    // cont++;
-    // while(isinf(MQ135.getR0()) && cont < 3);
-
-    // }
   #endif
 
   Serial.println("All startup programming codes done. Default code running!");
