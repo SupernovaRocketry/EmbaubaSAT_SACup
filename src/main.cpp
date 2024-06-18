@@ -376,7 +376,7 @@ String Json(){
   sensores["sat"] = "Embauba";
   sensores["time"] = millis();
   sensores["cur"] = current_mA;
-  sensores["tmep"] = temperatura_bmp;
+  sensores["temp"] = temperatura_bmp;
   sensores["press"] = pressao_bmp;
   sensores["alt"] = altitude_bmp;
   sensores["lat"] = lat;
