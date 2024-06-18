@@ -15,17 +15,6 @@
 #include <SD.h>
 #include <FS.h>
 
-// --------------------------------------
-#define SAMPLE_TIME 250
-//#define ENS160_I2CADDR_1 0x53
-//#define AHTXX_ADDRESS_X38 0x38
-#define AHT10_I2CADDR AHTX0_I2CADDR_ALTERNATE // AHTX0_I2CADDR_DEFAULT
-#define MPU6500_ADDR 0x68
-#define INA219_ADDR 0x40
-#define BMP280_ADDR 0x76
-//#define GPS_BAUDRATE 57600
-static const int RXPin = 16, TXPin = 17;
-static const uint32_t GPS_BAUDRATE = 9600;
 // ------------------ Activate actions --------------------------
 #define SERIALPRINT 1 // defined is ON and commented is OFF
 #define AHT 1 // defined is ON and commented is OFF
@@ -39,9 +28,21 @@ static const uint32_t GPS_BAUDRATE = 9600;
 #define Tellemetry_send 1 // defined is ON and commented is OFF
 #define SD_init 1 // defined is ON and commented is OFF
 
+// --------------------------------------
+#define SAMPLE_TIME 250
+//#define ENS160_I2CADDR_1 0x53
+//#define AHTXX_ADDRESS_X38 0x38
+#define AHT10_I2CADDR AHTX0_I2CADDR_ALTERNATE // AHTX0_I2CADDR_DEFAULT
+#define MPU6500_ADDR 0x68
+#define INA219_ADDR 0x40
+#define BMP280_ADDR 0x76
+//#define GPS_BAUDRATE 57600
+static const int RXPin = 16, TXPin = 17;
+static const uint32_t GPS_BAUDRATE = 9600;
+
 ScioSense_ENS160 ens160(ENS160_I2CADDR_1); // I2C address of the ENS160 sensor
-unsigned long lastMeasurementTime = 1000;
-const unsigned long measurementInterval = 4000;
+unsigned long lastMeasurementTime = 250;
+const unsigned long measurementInterval = 250;
 #ifdef AHT21
   #include <AHTxx.h>
   AHTxx aht21(AHTXX_ADDRESS_X38  , AHT2x_SENSOR); // I2C address and type of the AHT21 sensor
@@ -102,11 +103,11 @@ float Aceton = 0;
 //#define calibration_button 13 //Pin to calibrate your sensor
 //Declare Sensor
 MQUnifiedsensor MQ135(placa, Voltage_Resolution, ADC_Bit_Resolution, pin, type);
-#define MQ135_DEFAULTPPM 418.82 //default ppm of CO2 for calibration
-#define MQ135_DEFAULTRO 68550 //default Ro for MQ135_DEFAULTPPM ppm of CO2
-// #define MQ135_DEFAULTRO 1726.5
-#define MQ135_SCALINGFACTOR 116.6020682 //CO2 gas value
-#define MQ135_EXPONENT -2.769034857 //CO2 gas value
+// #define MQ135_DEFAULTPPM 423.16 //default ppm of CO2 for calibration
+// #define MQ135_DEFAULTRO 68550 //default Ro for MQ135_DEFAULTPPM ppm of CO2
+// // #define MQ135_DEFAULTRO 1726.5
+// #define MQ135_SCALINGFACTOR 116.6020682 //CO2 gas value
+// #define MQ135_EXPONENT -2.769034857 //CO2 gas value
 #define MQ135_MAXRSRO 2.428 //for CO2
 #define MQ135_MINRSRO 0.358 //for CO2
 /// Parameters for calculating ppm of CO2 from sensor resistance
@@ -140,6 +141,7 @@ void readINA(){
     busvoltage = ina219_0.getBusVoltage_V();
     current_mA = ina219_0.getCurrent_mA(); /* comando para chamar a corrente */
     power_mW = ina219_0.getPower_mW(); /*comando para chamar a potência */
+    #ifdef SERIALPRINT
     Serial.print("Corrente: "); 
     Serial.print(current_mA); 
     Serial.println(" mA"); /*printa a corrente */
@@ -152,6 +154,7 @@ void readINA(){
     Serial.print("Shunt Voltage: "); 
     Serial.print(shuntvoltage); 
     Serial.println(" V"); /* printa a potência */
+    #endif
 }
 
 // -------------- GPS ----------------
@@ -218,6 +221,7 @@ void readBMP(){
     temperatura_bmp = bmp.readTemperature();
     pressao_bmp = bmp.readPressure();
     altitude_bmp = bmp.readAltitude(1013.25);
+    #ifdef SERIALPRINT
     Serial.print(F("Temperatura = "));
     Serial.print(temperatura_bmp);
     Serial.println(" *C");
@@ -229,6 +233,7 @@ void readBMP(){
     Serial.print(F("Altitude Aprox = "));
     Serial.print(altitude_bmp); /* Ajustar a pressão de nível do mar de acordo com o local!*/
     Serial.println(" m");
+    #endif
 
 }
 
@@ -266,21 +271,21 @@ void readMQ135(){
   // }
   R0 = MQ135.getR0(); 
   RL = MQ135.getRL();
-  MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
-  MQ135.setA(605.18); MQ135.setB(-3.937); // Configure the equation to calculate CO concentration value
-  CO = MQ135.readSensor(); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
-  MQ135.setA(77.255); MQ135.setB(-3.18); //Configure the equation to calculate Alcohol concentration value
-  Alcohol = MQ135.readSensor(); // SSensor will read PPM concentration using the model, a and b values set previously or from the setup
   cFactor = 0;
   if (!isnan(temperatureEvent.temperature) && !isnan(humidityEvent.relative_humidity)) cFactor = getCorrectionFactor(temperatureEvent.temperature, humidityEvent.relative_humidity);
+  MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
+  MQ135.setA(605.18); MQ135.setB(-3.937); // Configure the equation to calculate CO concentration value
+  CO = MQ135.readSensor(false,cFactor); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
+  MQ135.setA(77.255); MQ135.setB(-3.18); //Configure the equation to calculate Alcohol concentration value
+  Alcohol = MQ135.readSensor(false,cFactor); // SSensor will read PPM concentration using the model, a and b values set previously or from the setup
   MQ135.setA(110.47); MQ135.setB(-2.862); // Configure the equation to calculate CO2 concentration value
   CO2_MQ = MQ135.readSensor(false, cFactor); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
   MQ135.setA(44.947); MQ135.setB(-3.445); // Configure the equation to calculate Toluen concentration value
-  Toluen = MQ135.readSensor(); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
+  Toluen = MQ135.readSensor(false,cFactor); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
   MQ135.setA(102.2); MQ135.setB(-2.473); // Configure the equation to calculate NH4 concentration value
-  NH4 = MQ135.readSensor(); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
+  NH4 = MQ135.readSensor(false,cFactor); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
   MQ135.setA(34.668); MQ135.setB(-3.369); // Configure the equation to calculate Aceton concentration value
-  Aceton = MQ135.readSensor(); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
+  Aceton = MQ135.readSensor(false,cFactor); // Sensor will read PPM concentration using the model, a and b values set previously or from the setup
   #ifdef SERIALPRINT
     Serial.print("| CO:  "); Serial.print(CO); 
     Serial.print("   | Alcohol:  "); Serial.print(Alcohol);
@@ -310,21 +315,25 @@ void readMPU6500(){
 
 // -------------- ENS160 ----------------
 void readENS(){
-  #ifdef AHT21
-  float temperature = aht21.readTemperature();
-  float humidity = aht21.readHumidity();
-  Serial.println("Temperature: " + String(temperature));
-  Serial.println("Humidity: " + String(humidity));
-  #endif
-  //ens160.measureRaw(0);
+  ens160.measure(0);
   float aqi = ens160.getAQI();
   float tvoc = ens160.getTVOC();
   float CO2_ENS = ens160.geteCO2();
+  
+  #ifdef AHT21
+  float temperature = aht21.readTemperature();
+  float humidity = aht21.readHumidity();
+  #ifdef SERIALPRINT
+  Serial.println("Temperature: " + String(temperature));
+  Serial.println("Humidity: " + String(humidity));
+  #endif
+  #endif
+  #ifdef SERIALPRINT
   Serial.println("AQI: " + String(aqi));
   Serial.println("TVOC: " + String(tvoc));
   Serial.println("eCO2: " + String(CO2_ENS));
-  ////////////////////
-  
+  lastMeasurementTime = millis();
+  #endif
   ////////////////////
   // ens160.measure(true);
   // ens160.measureRaw(true);
@@ -486,27 +495,28 @@ void setup (){
 // Initialize MQ135
   #ifdef MQ
     float calcR0 = 0;
+    int cals = 100;
     MQ135.setRL(1); //Set Rl as 1kOhm
     MQ135.setRegressionMethod(1); //_PPM =  a*ratio^b //Set math model to calculate the PPM concentration and the value of constants
     MQ135.init(); 
     Serial.print("Calibrating gas sensor, please wait.");
-    for(int i = 1; i<=100; i ++)
+    for(int i = 1; i<=cals; i ++)
     { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
       calcR0 += MQ135.calibrate(RatioMQ135CleanAir);
       Serial.print(".");}
-    MQ135.setR0(calcR0/100);
-    Serial.print("  done! RO value is:");
-    Serial.println(calcR0/100);
+    MQ135.setR0(calcR0/cals);
+    Serial.print("RO value is:");
+    Serial.println(calcR0/cals);
     if(isinf(calcR0)) {
     Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");}
     if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply");}//while(1);
   #endif
 
-  // Initialize I2C
+// Initialize I2C
   Wire.begin();
   Wire.setClock(100000); // Set the I2C clock speed to 100 kHz
 
-  // Initialize MPU6500
+// Initialize MPU6500
   #ifdef MPU
     if(!myMPU6500.init()){
       Serial.println("MPU6500 does not respond");
@@ -525,7 +535,7 @@ void setup (){
     myMPU6500.setAccDLPF(MPU6500_DLPF_6);
   #endif
 
-// Initialize AHT
+// Initialize AHT10
   #ifdef AHT
     if (!aht.begin(&Wire, 0, AHTX0_I2CADDR_ALTERNATE)) {
       Serial.println("Failed to find AHT10 chip with 0x39 address");
@@ -537,6 +547,7 @@ void setup (){
    else{Serial.println("AHT10 initialized with alternate address");}
   #endif
 
+// Initialize AHT21
   #ifdef AHT21
     if (!aht21.begin()) {
     Serial.println("Could not find a valid ATH21 sensor, check wiring!");
@@ -548,7 +559,7 @@ void setup (){
     }
   #endif
   
-  // Initialize BMP
+// Initialize BMP
   #ifdef BMP
     if (!bmp.begin(BMP280_ADDR)) { /*Definindo o endereço I2C como 0x76. Mudar, se necessário, para (0x77)*/
     //Imprime mensagem de erro no caso de endereço invalido ou não localizado. Modifique o valor 
@@ -559,7 +570,8 @@ void setup (){
       Serial.println("BMP initialized...");
     }
   #endif
-  //Initialize SD
+
+//Initialize SD
   #ifdef SD_init
     Serial.println("SD initializing...");
     spi.begin(SCK, MISO, MOSI, CS);
@@ -577,8 +589,8 @@ void setup (){
     writeFile(SD, "/ hello . txt ", "");
   #endif
 
+// Initialize INA219
   #ifdef INA
-    // Initialize INA219
     if (! ina219_0.begin()) 
     {
       //while (1) {
@@ -591,7 +603,7 @@ void setup (){
     }
   #endif
 
-  // Initialize ENS160
+// Initialize ENS160
   #ifdef ENS
     Serial.println("ENS160 - Digital air quality sensor");
     if (!ens160.begin()) {
@@ -602,52 +614,51 @@ void setup (){
     Serial.println("ENS160 sensor found");
     ens160.setMode(ENS160_OPMODE_STD);  // Set standard mode of operation
     Serial.println("ENS160 sensor set to standard mode");
-    ens160.measure(0);
-    lastMeasurementTime = millis();
     }
     /////////////////
     // ens160.begin();
     // Serial.println(ens160.available() ? "done." : "failed!");
-    // if (ens160.available()) {
-    //   // Print ENS160 versions
+    // if (ens160.available()) {// Print ENS160 versions
     //   Serial.print("\tRev: "); Serial.print(ens160.getMajorRev());
     //   Serial.print("."); Serial.print(ens160.getMinorRev());
     //   Serial.print("."); Serial.println(ens160.getBuild());
     //   Serial.print("\tStandard mode ");
-    //   Serial.println(ens160.setMode(ENS160_OPMODE_STD) ? "done." : "failed!" );
-    // }
+    //   Serial.println(ens160.setMode(ENS160_OPMODE_STD) ? "done." : "failed!" ); }
     // else{
-    //   Serial.println("Could not find a valid ENS160 sensor, check wiring!");
-    // }
+    //   Serial.println("Could not find a valid ENS160 sensor, check wiring!"); }
   #endif
 
+// Reinitialize MQ if R0 is inf.
   #ifdef MQ
-  int maxCalibrationAttempts = 4;
-  for (int i = 0; i < maxCalibrationAttempts; i++) {
-    float calcR0 = 0;
-    Serial.print("Calibrating gas sensor, please wait.");
-    for(int j = 1; j<=100; j ++)
-    { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
-      calcR0 += MQ135.calibrate(RatioMQ135CleanAir); //Serial.print(".");
+  if (isinf(calcR0)){ 
+    int Attempts = 4;
+    for (int i = 0; i < Attempts; i++) {
+      float calcR0 = 0;
+      int cals = int(120/(i+1));
+      Serial.print("Calibrating gas sensor, please wait.");
+      for(int j = 1; j<=cals; j ++)
+      { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
+        calcR0 += MQ135.calibrate(RatioMQ135CleanAir); //Serial.print(".");
+      }
+      MQ135.setR0(calcR0/cals);
+      Serial.print("RO value is:");
+      Serial.println(calcR0/cals);
+      if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply");}
+      if (!isinf(calcR0)) {
+        break;
+      } else {
+        Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");
+      }
     }
-    MQ135.setR0(calcR0/100);
-    Serial.print("  done! RO value is:");
-    Serial.println(calcR0/100);
-    if(calcR0 == 0){Serial.println("Warning: Conection issue found, R0 is zero (Analog pin shorts to ground) please check your wiring and supply");}
-    if (!isinf(calcR0)) {
-      break;
-    } else {
-      Serial.println("Warning: Conection issue, R0 is infinite (Open circuit detected) please check your wiring and supply");
-    }
-  }
+  } 
   #endif
 
   Serial.println("All startup programming codes done. Default code running!");
-
 }
 
 //  ---------------------------------------------- void loop -----------------------------------------------------------------
 void loop() {
+
     #ifdef INA
       readINA();
     #endif
@@ -673,11 +684,7 @@ void loop() {
     #endif
 
     #ifdef ENS
-    if (millis() - lastMeasurementTime >= measurementInterval) {
       readENS();
-      lastMeasurementTime = millis();
-      ens160.measure(0);
-      }
     #endif
 
     jsonStr = Json(); 
@@ -689,7 +696,7 @@ void loop() {
     jsonStrFull = FullJson();
     #ifdef SD_init
       saveSD(SD, "/ hello . txt ", jsonStrFull.c_str());
-    #endif   
-
+    #endif
+    
     delay(SAMPLE_TIME);
 }
