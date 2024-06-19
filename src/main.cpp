@@ -30,7 +30,7 @@
 #define SD_init 1 // defined is ON and commented is OFF
 
 // --------------------------------------
-#define SAMPLE_TIME 1500
+#define SAMPLE_TIME 250
 //#define ENS160_I2CADDR_1 0x53
 //#define AHTXX_ADDRESS_X38 0x38
 #define AHT10_I2CADDR AHTX0_I2CADDR_ALTERNATE // AHTX0_I2CADDR_DEFAULT
@@ -39,7 +39,7 @@
 #define BMP280_ADDR 0x76
 //#define GPS_BAUDRATE 57600
 static const int RXPin = 16, TXPin = 17;
-static const uint32_t GPS_BAUDRATE = 9600;
+static const uint32_t GPS_BAUDRATE = 9600; //57600
 
 ScioSense_ENS160 ens160(ENS160_I2CADDR_1); // I2C address of the ENS160 sensor
 unsigned long lastMeasurementTime = 250;
@@ -62,11 +62,14 @@ float shuntvoltage = 0;
 float busvoltage = 0;
 float lat = 0;
 float lon = 0;
+char time_str[12]; // 12 characters max: "00:00:00.00"
 float temperatura_bmp = 0;
 float pressao_bmp = 0;
+float p0_bmp = 0;
 float altitude_bmp = 0;
 float ax = 0, ay = 0, az = 0;
 float gx = 0, gy = 0, gz = 0;
+float gx_angle = 0, gy_angle = 0, gz_angle = 0;
 float temp = 0; 
 float resultantG = 0;
 String jsonStr;
@@ -185,20 +188,19 @@ void displayInfo() {
 
   Serial.print(F(" "));
   if (gps.time.isValid()) {
-    if (gps.time.hour() < 10) Serial.print(F("0"));
-    Serial.print(gps.time.hour());
-    Serial.print(F(":"));
-    if (gps.time.minute() < 10) Serial.print(F("0"));
-    Serial.print(gps.time.minute());
-    Serial.print(F(":"));
-    if (gps.time.second() < 10) Serial.print(F("0"));
-    Serial.print(gps.time.second());
-    Serial.print(F("."));
-    if (gps.time.centisecond() < 10) Serial.print(F("0"));
-    Serial.print(gps.time.centisecond());
-  } else {
+    if (gps.time.hour() < 10);
+      int hour = (gps.time.hour());
+    if (gps.time.minute() < 10);
+      int minute = (gps.time.minute());
+    if (gps.time.second() < 10);
+      int second = (gps.time.second());
+    if (gps.time.centisecond() < 10);
+      int csecond = (gps.time.centisecond());
+    sprintf(time_str, "%02d:%02d:%02d.%02d", hour, minute, second, csecond);}
+   else {
     Serial.print(F("INVALID"));
   }
+  
 
   Serial.println();
 }
@@ -221,8 +223,9 @@ void readGPS()
 
 void readBMP(){
     temperatura_bmp = bmp.readTemperature();
-    pressao_bmp = bmp.readPressure();
+    pressao_bmp = bmp.readPressure()/1000.0; //kPa
     altitude_bmp = bmp.readAltitude(1013.25);
+    p0_bmp = pressao_bmp / pow(1.0 - (altitude_bmp/44330.0), 5.255); //sea level pressure kPa
     #ifdef SERIALPRINT
     Serial.print(F("Temperatura = "));
     Serial.print(temperatura_bmp);
@@ -262,15 +265,6 @@ void readAHT(){
 }
 
 void readMQ135(){
-  // if( isinf(MQ135.getR0()) && millis() < 60000 ){
-  //   for(int i = 1; i<=10; i ++)
-  //   { MQ135.update(); // Update data, the arduino will read the voltage from the analog pin
-  //     calcR0 += MQ135.calibrate(RatioMQ135CleanAir);
-  //     Serial.print(".");}
-  //   MQ135.setR0(calcR0/10);
-  //   Serial.print("  done! RO value is:");
-  //   Serial.println(calcR0/10);
-  // }
   R0 = MQ135.getR0(); 
   RL = MQ135.getRL();
   cFactor = 0;
@@ -304,15 +298,22 @@ void readMPU6500(){
 // Read accelerometer data
   xyzFloat gValue = myMPU6500.getGValues();
   xyzFloat gyr = myMPU6500.getGyrValues();
+  xyzFloat rot = myMPU6500.getAngles();
+
   //temp = myMPU6500.getTemperature(); // Read temperature data
   //resultantG = myMPU6500.getResultantG(gValue);
   ax = gValue.x;
   ay = gValue.y;
   az = gValue.z;
   // Read gyroscope data
+  // Read angular velocity data
   gx = gyr.x;
   gy = gyr.y;
   gz = gyr.z;
+  // Read angular data
+  gx_angle = rot.x;
+  gy_angle = rot.y;
+  gz_angle = rot.z;
 }
 
 // -------------- ENS160 ----------------
@@ -388,18 +389,18 @@ String Json(){
   sensores["time"] = millis();
   sensores["volt"] = round(busvoltage * 100) / 100.0;
   sensores["temp"] = round(temperatura_bmp * 100) / 100.0;
-  sensores["press"] = round(pressao_bmp * 100) / 100.0;
+  sensores["press"] = round(p0_bmp * 100) / 100.0;
   sensores["alt"] = round(altitude_bmp * 100) / 100.0;
   sensores["lat"] = lat;
   sensores["long"] = lon;
   sensores["aX"] = round(ax * 100 * 9.8) / 100.0;
   sensores["aY"] = round(ay * 100 * 9.8) / 100.0;
   sensores["aZ"] = round(az * 100 * 9.8) / 100.0;
-  sensores["gX"] = round(gx * 100 * 180 / PI) / 100.0;
-  sensores["gY"] = round(gy * 100 * 180 / PI) / 100.0;
-  sensores["gZ"] = round(gz * 100 * 180 / PI) / 100.0;
+  sensores["gX"] = round(gx_angle * 100) / 100.0;
+  sensores["gY"] = round(gy_angle * 100) / 100.0;
+  sensores["gZ"] = round(gz_angle * 100) / 100.0;
   sensores["co"] = round(CO * 100) / 100.0;
-  sensores["co2"] = round(CO2_MQ * 100) / 100.0;
+  sensores["co2"] = round((CO2_MQ+default_C02) * 100) / 100.0;
 
   String jsonString; //Create a JSON string
   size_t size0 = serializeJson(sensores, jsonString); //Convert JsonDocument into a JSON string
@@ -416,9 +417,12 @@ String Json(){
 
 String FullJson(){
   DynamicJsonDocument sensores2(512);
+  
   //Adicionando os valores dos sensores ao JsonObject
   sensores2["sat"] = "Embauba";
   sensores2["time"] = millis();
+  if(lat != 0){
+    sensores2["UTC"] = time_str;}
   sensores2["cur"] = current_mA;
   sensores2["pow"] = power_mW;
   sensores2["busV"] = busvoltage;
@@ -434,6 +438,9 @@ String FullJson(){
   sensores2["gX"] = gx;
   sensores2["gY"] = gy;
   sensores2["gZ"] = gz;
+  sensores2["gXa"] = gx_angle;
+  sensores2["gYa"] = gy_angle;
+  sensores2["gZa"] = gz_angle;
   sensores2["alc"] = Alcohol;
   sensores2["tol"] = Toluen;
   sensores2["NH4"] = NH4;
