@@ -14,6 +14,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <FS.h>
+#include <stdio.h>
 
 // ------------------ Activate actions --------------------------
 #define SERIALPRINT 1 // defined is ON and commented is OFF
@@ -29,7 +30,7 @@
 #define SD_init 1 // defined is ON and commented is OFF
 
 // --------------------------------------
-#define SAMPLE_TIME 250
+#define SAMPLE_TIME 1500
 //#define ENS160_I2CADDR_1 0x53
 //#define AHTXX_ADDRESS_X38 0x38
 #define AHT10_I2CADDR AHTX0_I2CADDR_ALTERNATE // AHTX0_I2CADDR_DEFAULT
@@ -97,6 +98,7 @@ float CO = 0;
 float Alcohol = 0;
 float cFactor = 0;
 float CO2_MQ = 0;
+float default_C02 = DEFAULT_C02;
 float Toluen = 0;
 float NH4 = 0;
 float Aceton = 0;
@@ -384,22 +386,31 @@ String Json(){
   //Adicionando os valores dos sensores ao JsonObject
   sensores["sat"] = "Embauba";
   sensores["time"] = millis();
-  sensores["cur"] = current_mA;
-  sensores["temp"] = temperatura_bmp;
-  sensores["press"] = pressao_bmp;
-  sensores["alt"] = altitude_bmp;
+  sensores["volt"] = round(busvoltage * 100) / 100.0;
+  sensores["temp"] = round(temperatura_bmp * 100) / 100.0;
+  sensores["press"] = round(pressao_bmp * 100) / 100.0;
+  sensores["alt"] = round(altitude_bmp * 100) / 100.0;
   sensores["lat"] = lat;
   sensores["long"] = lon;
-  sensores["aX"] = ax;
-  sensores["aY"] = ay;
-  sensores["aZ"] = az;
-  sensores["gX"] = gx;
-  sensores["gY"] = gy;
-  sensores["gZ"] = gz;
-  sensores["co"] = CO;
-  sensores["co2"] = CO2_MQ + DEFAULT_C02;
-  String jsonString; //Convertendo o JsonDocument em uma string JSON
-  serializeJson(sensores, jsonString); // Imprimindo a string JSON no monitor serial
+  sensores["aX"] = round(ax * 100 * 9.8) / 100.0;
+  sensores["aY"] = round(ay * 100 * 9.8) / 100.0;
+  sensores["aZ"] = round(az * 100 * 9.8) / 100.0;
+  sensores["gX"] = round(gx * 100 * 180 / PI) / 100.0;
+  sensores["gY"] = round(gy * 100 * 180 / PI) / 100.0;
+  sensores["gZ"] = round(gz * 100 * 180 / PI) / 100.0;
+  sensores["co"] = round(CO * 100) / 100.0;
+  sensores["co2"] = round(CO2_MQ * 100) / 100.0;
+
+  String jsonString; //Create a JSON string
+  size_t size0 = serializeJson(sensores, jsonString); //Convert JsonDocument into a JSON string
+  Serial.print("The sizeof in bytes of the string is");
+  Serial.println(size0);
+
+  // char buffer[256];
+  // size_t size1 = serializeJson(sensores, buffer, sizeof(buffer));
+  // Serial.print("ArduinoJSON bytes of the buffer is.");
+  // Serial.println(size1);
+
   return jsonString;
 }
 
@@ -687,16 +698,16 @@ void loop() {
       readENS();
     #endif
 
-    jsonStr = Json(); 
+    //jsonStr = Json(); 
     //Serial.println(jsonStr);
     #ifdef Tellemetry_send
-      espToRasp(jsonStr);
+      espToRasp(Json());
     #endif
 
     jsonStrFull = FullJson();
     #ifdef SD_init
       saveSD(SD, "/ hello . txt ", jsonStrFull.c_str());
     #endif
-    
+
     delay(SAMPLE_TIME);
 }
