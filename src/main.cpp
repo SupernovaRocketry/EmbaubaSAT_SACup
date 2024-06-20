@@ -15,6 +15,8 @@
 #include <SD.h>
 #include <FS.h>
 #include <stdio.h>
+#include <SPIFFS.h>
+#include <random>
 
 // ------------------ Activate actions --------------------------
 #define SERIALPRINT 1 // defined is ON and commented is OFF
@@ -39,7 +41,7 @@
 #define BMP280_ADDR 0x76
 //#define GPS_BAUDRATE 57600
 static const int RXPin = 16, TXPin = 17;
-static const uint32_t GPS_BAUDRATE = 9600; //57600
+static const uint32_t GPS_BAUDRATE = 9600; //57600 | 9600
 
 ScioSense_ENS160 ens160(ENS160_I2CADDR_1); // I2C address of the ENS160 sensor
 unsigned long lastMeasurementTime = 250;
@@ -137,6 +139,7 @@ const int udpPort = 1234;
 #define MISO 12
 #define MOSI 13
 #define CS 15
+String filename = "/data_";
 // File dataFile;
 
 // ------------------------ Leituras ------------------------
@@ -507,7 +510,7 @@ void setup (){
 // Initialize GPS
   #ifdef GPS
     Serial2.begin(GPS_BAUDRATE, SERIAL_8N1, RXPin, TXPin);
-    Serial.println("GPS initialization done..."); 
+    Serial.println("GPS initialization done at " + String(GPS_BAUDRATE) + " baudrate...");
   #endif
 
 // Initialize MQ135
@@ -604,7 +607,10 @@ void setup (){
       Serial.println("No SD card attached ");
       return;
     }
-    writeFile(SD, "/ hello . txt ", "");
+    filename += String(random(0, 99999));
+    filename += ".txt";
+    writeFile(SD, filename.c_str(), "");
+    
   #endif
 
 // Initialize INA219
@@ -713,7 +719,7 @@ void loop() {
 
     jsonStrFull = FullJson();
     #ifdef SD_init
-      saveSD(SD, "/ hello . txt ", jsonStrFull.c_str());
+      saveSD(SD, filename.c_str(), jsonStrFull.c_str());
     #endif
 
     delay(SAMPLE_TIME);
